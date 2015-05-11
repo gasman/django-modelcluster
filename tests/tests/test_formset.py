@@ -138,6 +138,57 @@ class TransientFormsetTest(TestCase):
         self.assertEqual(beatles.id, BandMember.objects.get(id=ringo_id).band_id)
 
 
+class TransientFormsetUniqueTogetherTest(TestCase):
+    BandMembersFormset = transientmodelformset_factory(BandMember, extra=3, can_delete=True)
+
+    def test_valid(self):
+        beatles = Band.objects.create(name="The Beatles")
+        quarrymen = Band.objects.create(name="The Quarrymen")
+
+        band_members_formset = self.BandMembersFormset({
+            'form-TOTAL_FORMS': 3,
+            'form-INITIAL_FORMS': 0,
+            'form-MAX_NUM_FORMS': 1000,
+
+            'form-0-name': 'John Lennon',
+            'form-0-band': beatles.id,
+            'form-0-id': '',
+
+            'form-1-name': 'Paul McCartney',
+            'form-1-band': beatles.id,
+            'form-1-id': '',
+
+            'form-2-name': 'John Lennon',
+            'form-2-band': quarrymen.id,
+            'form-2-id': '',
+        })
+
+        self.assertTrue(band_members_formset.is_valid())
+
+    def test_invalid(self):
+        beatles = Band.objects.create(name="The Beatles")
+
+        band_members_formset = self.BandMembersFormset({
+            'form-TOTAL_FORMS': 3,
+            'form-INITIAL_FORMS': 0,
+            'form-MAX_NUM_FORMS': 1000,
+
+            'form-0-name': 'John Lennon',
+            'form-0-band': beatles.id,
+            'form-0-id': '',
+
+            'form-1-name': 'Paul McCartney',
+            'form-1-band': beatles.id,
+            'form-1-id': '',
+
+            'form-2-name': 'John Lennon',
+            'form-2-band': beatles.id,
+            'form-2-id': '',
+        })
+
+        self.assertFalse(band_members_formset.is_valid())
+
+
 class ChildFormsetTest(TestCase):
     def test_can_create_formset(self):
         beatles = Band(name='The Beatles', members=[
