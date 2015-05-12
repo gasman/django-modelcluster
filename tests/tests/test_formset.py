@@ -187,6 +187,10 @@ class TransientFormsetUniqueTogetherTest(TestCase):
         })
 
         self.assertFalse(band_members_formset.is_valid())
+        self.assertEqual(
+            band_members_formset.errors[2]['__all__'],
+            ["Please correct the duplicate values below."]
+        )
 
 
 class ChildFormsetTest(TestCase):
@@ -313,3 +317,95 @@ class OrderedFormsetTest(TestCase):
 
         album_names = [album.name for album in beatles.albums.all()]
         self.assertEqual(['Please Please Me', 'With The Beatles'], album_names)
+
+
+class ChildFormsetUniqueTogetherTest(TestCase):
+    BandMembersFormset = childformset_factory(Band, BandMember, extra=3)
+
+    def test_valid(self):
+        beatles = Band.objects.create(name="The Beatles")
+
+        band_members_formset = self.BandMembersFormset({
+            'form-TOTAL_FORMS': 3,
+            'form-INITIAL_FORMS': 0,
+            'form-MAX_NUM_FORMS': 1000,
+
+            'form-0-name': 'John Lennon',
+            'form-0-id': '',
+
+            'form-1-name': 'Paul McCartney',
+            'form-1-id': '',
+
+            'form-2-name': 'George Harrison',
+            'form-2-id': '',
+        }, instance=beatles)
+
+        self.assertTrue(band_members_formset.is_valid())
+
+    def test_invalid(self):
+        beatles = Band.objects.create(name="The Beatles")
+
+        band_members_formset = self.BandMembersFormset({
+            'form-TOTAL_FORMS': 3,
+            'form-INITIAL_FORMS': 0,
+            'form-MAX_NUM_FORMS': 1000,
+
+            'form-0-name': 'John Lennon',
+            'form-0-id': '',
+
+            'form-1-name': 'Paul McCartney',
+            'form-1-id': '',
+
+            'form-2-name': 'John Lennon',
+            'form-2-id': '',
+        }, instance=beatles)
+
+        self.assertFalse(band_members_formset.is_valid())
+        self.assertEqual(
+            band_members_formset.errors[2]['__all__'],
+            ["Please correct the duplicate values below."]
+        )
+
+    def test_valid_with_unsaved_parent(self):
+        beatles = Band(name="The Beatles")
+
+        band_members_formset = self.BandMembersFormset({
+            'form-TOTAL_FORMS': 3,
+            'form-INITIAL_FORMS': 0,
+            'form-MAX_NUM_FORMS': 1000,
+
+            'form-0-name': 'John Lennon',
+            'form-0-id': '',
+
+            'form-1-name': 'Paul McCartney',
+            'form-1-id': '',
+
+            'form-2-name': 'George Harrison',
+            'form-2-id': '',
+        }, instance=beatles)
+
+        self.assertTrue(band_members_formset.is_valid())
+
+    def test_invalid_with_unsaved_parent(self):
+        beatles = Band(name="The Beatles")
+
+        band_members_formset = self.BandMembersFormset({
+            'form-TOTAL_FORMS': 3,
+            'form-INITIAL_FORMS': 0,
+            'form-MAX_NUM_FORMS': 1000,
+
+            'form-0-name': 'John Lennon',
+            'form-0-id': '',
+
+            'form-1-name': 'Paul McCartney',
+            'form-1-id': '',
+
+            'form-2-name': 'John Lennon',
+            'form-2-id': '',
+        }, instance=beatles)
+
+        self.assertFalse(band_members_formset.is_valid())
+        self.assertEqual(
+            band_members_formset.errors[2]['__all__'],
+            ["Please correct the duplicate values below."]
+        )
