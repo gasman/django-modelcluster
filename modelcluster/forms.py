@@ -9,7 +9,7 @@ from django.forms.models import (
 from django.db.models.fields.related import ForeignObjectRel
 
 
-from modelcluster.models import get_all_child_relations
+from modelcluster.models import get_all_child_m2m_relations, get_all_child_relations
 
 
 class BaseTransientModelFormSet(BaseModelFormSet):
@@ -273,19 +273,50 @@ class ClusterForm(with_metaclass(ClusterFormMetaclass, ModelForm)):
             media = media + formset.media
         return media
 
+    def _save_parental_m2m(self):
+        """
+        Save the parental many-to-many fields for this form.
+        """
+        cleaned_data = self.cleaned_data
+        exclude = self._meta.exclude
+        fields = self._meta.fields
+
+        for f in get_all_child_m2m_relations(self.instance):
+            if fields and f.name not in fields:
+                continue
+            if exclude and f.name in exclude:
+                continue
+            if f.name in cleaned_data:
+                f.save_form_data(self.instance, cleaned_data[f.name])
+
     def save(self, commit=True):
-        instance = super(ClusterForm, self).save(commit=commit)
+        instance = super(ClusterForm, self).save(commit=False)
 
-        # In Django's standard form handling, passing commit=False means that m2m relations will
-        # not be written to the model immediately (because it can't do that without writing to
-        # the database); instead, that operation is placed in a save_m2m() method to be called later.
+        # Explicitly write ParentalManyToManyField relations back to the instance. This step
+        # isn't handled by the standard ModelForm logic - normally fields would be written back
+        # by django.forms.models.construct_instance during the _post_clean step, but this skips
+        # all ManyToManyFields because they're not 'real' fields as defined by model._meta.fields.
+        # This is the right thing to do in the case of plain ManyToManyFields, because those
+        # are handled separately in _save_m2m(); however, _save_m2m() doesn't work on
+        # ParentalManyToManyFields because:
+        #  1) ParentalManyToManyFields need to be explicitly commit()-ed to the database, via
+        #     instance.save() or otherwise, and _save_m2m() doesn't do that;
+        #  2) the whole point of ParentalManyToManyFields is that we see the change on the
+        #     local instance immediately, even when calling form.save(commit=False) which
+        #     skips _save_m2m().
 
-        # Since ParentalManyToManyField _does_ provide a way to write back to the relation without
-        # writing to the database, we'll reverse this behaviour by calling save_m2m immediately.
-        if not commit:
-            self.save_m2m()
+        #self._save_parental_m2m()
 
         for formset in self.formsets.values():
             formset.instance = instance
-            formset.save(commit=commit)
+            # commit is False here, because the final `instance.save()` will take care of
+            # committing everything to the database if appropriate
+            formset.save(commit=False)
+
+        if commit:
+            instance.save()
+            self._save_m2m()
+        else:
+            self.save_m2m = self._save_m2m
+
         return instance

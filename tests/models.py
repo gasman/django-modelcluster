@@ -129,6 +129,7 @@ class Article(ClusterableModel):
     title = models.CharField(max_length=255)
     authors = ParentalManyToManyField('Author', related_name='articles_by_author')
     categories = ParentalManyToManyField('Category', related_name='articles_by_category')
+    locations = models.ManyToManyField(Place, blank=True, related_name='articles_set_here')
 
     def __str__(self):
         return self.title

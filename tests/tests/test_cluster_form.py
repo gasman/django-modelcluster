@@ -3,7 +3,9 @@ from __future__ import unicode_literals
 from django.utils.six import text_type
 
 from django.test import TestCase
-from tests.models import Band, BandMember, Album, Restaurant, Article, Author, Document, Gallery
+from tests.models import (
+    Band, BandMember, Album, Place, Restaurant, Chef, Article, Author, Category, Document, Gallery
+)
 from modelcluster.forms import ClusterForm
 from django.forms import Textarea, CharField, ModelForm
 from django.forms.widgets import TextInput, FileInput
@@ -571,25 +573,103 @@ class ClusterFormTest(TestCase):
 
 
 class FormWithM2MTest(TestCase):
+    def setUp(self):
+        self.james_joyce = Author.objects.create(name='James Joyce')
+        self.charles_dickens = Author.objects.create(name='Charles Dickens')
+        self.paris = Place.objects.create(name='Paris')
+        self.london = Place.objects.create(name='London')
+
+        self.article = Article.objects.create(
+            title='Test article',
+            authors=[self.james_joyce],
+        )
+        self.article.locations.add(self.paris)
+
+        self.category = Category.objects.create(name='Books')
+
     def test_render_form_with_m2m(self):
         class ArticleForm(ModelForm):
             class Meta:
                 model = Article
                 fields = ['title', 'authors', 'categories']
 
-        author1 = Author.objects.create(name='James Joyce')
-        author2 = Author.objects.create(name='Charles Dickens')
-        article = Article.objects.create(
-            title='Test article',
-            authors=[author1]
-        )
-
-        form = ArticleForm(instance=article)
+        form = ArticleForm(instance=self.article)
         html = form.as_p()
         self.assertIn('Test article', html)
 
-        article.authors.add(author2)
+        self.article.authors.add(self.charles_dickens)
 
-        form = ArticleForm(instance=article)
+        form = ArticleForm(instance=self.article)
         html = form.as_p()
         self.assertIn('Test article', html)
+
+    def test_save_form_with_m2m_and_parental_m2m(self):
+        class ArticleForm(ModelForm):
+            class Meta:
+                model = Article
+                fields = ['title', 'authors', 'locations']
+
+        form = ArticleForm({
+            'title': 'Updated test article',
+            'authors': [self.charles_dickens.id],
+            'locations': [self.london.id],
+        }, instance=self.article)
+        self.assertTrue(form.is_valid())
+        form.save()
+
+        # changes should take effect on both the in-memory instance and the database
+
+        self.assertEqual(self.article.title, 'Updated test article')
+        self.assertEqual(list(self.article.authors.all()), [self.charles_dickens])
+        self.assertEqual(list(self.article.locations.all()), [self.london])
+
+        updated_article = Article.objects.get(pk=self.article.pk)
+        self.assertEqual(updated_article.title, 'Updated test article')
+        self.assertEqual(list(updated_article.authors.all()), [self.charles_dickens])
+        self.assertEqual(list(updated_article.locations.all()), [self.london])
+
+    def test_save_form_uncommitted_with_m2m_and_parental_m2m(self):
+        class ArticleForm(ModelForm):
+            class Meta:
+                model = Article
+                fields = ['title', 'authors', 'locations']
+
+        form = ArticleForm({
+            'title': 'Updated test article',
+            'authors': [self.charles_dickens.id],
+            'locations': [self.london.id],
+        }, instance=self.article)
+        self.assertTrue(form.is_valid())
+        form.save(commit=False)
+
+        # the in-memory instance should have 'title' and 'authors' updated,
+        # but 'locations' is left unchanged because it's a plain M2M relation
+        # which requires a database update
+        self.assertEqual(self.article.title, 'Updated test article')
+        self.assertEqual(list(self.article.authors.all()), [self.charles_dickens])
+        self.assertEqual(list(self.article.locations.all()), [self.paris])
+
+        # the database record should be unchanged
+        db_article = Article.objects.get(pk=self.article.pk)
+        self.assertEqual(db_article.title, 'Test article')
+        self.assertEqual(list(db_article.authors.all()), [self.james_joyce])
+        self.assertEqual(list(db_article.locations.all()), [self.paris])
+
+        # save_m2m should write the plain M2M relations, but not the parental M2M relations
+        # since these will be written by model.save()
+        form.save_m2m()
+        self.assertEqual(self.article.title, 'Updated test article')
+        self.assertEqual(list(self.article.authors.all()), [self.charles_dickens])
+        self.assertEqual(list(self.article.locations.all()), [self.london])
+
+        db_article = Article.objects.get(pk=self.article.pk)
+        self.assertEqual(db_article.title, 'Test article')
+        self.assertEqual(list(db_article.authors.all()), [self.james_joyce])
+        self.assertEqual(list(db_article.locations.all()), [self.london])
+
+        # finally, model.save updates plain fields and parental M2M relations
+        self.article.save()
+        db_article = Article.objects.get(pk=self.article.pk)
+        self.assertEqual(db_article.title, 'Updated test article')
+        self.assertEqual(list(db_article.authors.all()), [self.charles_dickens])
+        self.assertEqual(list(db_article.locations.all()), [self.london])
